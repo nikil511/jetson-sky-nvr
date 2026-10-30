@@ -2,7 +2,11 @@
 
 Edge NVR and real-time **Sky Computer-Vision & Cloud Ceiling Laboratory** running on an **NVIDIA Jetson Xavier NX** (L4T R35.6.5 / JetPack 5.1.6).
 
-![Athens Sky Vision Overlay](docs/images/sky-vision-overlay.jpg)
+### Live Dashboard & Diagnostic Timelapse Player (`:8080`)
+![Athens Sky Lab Dashboard](docs/images/sky-lab-dashboard.png)
+
+### Nighttime Urban Light-Dome Detrended Cloud Mask
+![Athens Sky Vision Night Overlay](docs/images/sky-vision-overlay.jpg)
 
 ---
 
