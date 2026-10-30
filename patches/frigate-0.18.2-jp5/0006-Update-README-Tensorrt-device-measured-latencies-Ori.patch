@@ -1,0 +1,32 @@
+From d3d04714314f6b57f6e6f172ae63927a51fbd206 Mon Sep 17 00:00:00 2001
+From: Kamil Klyta <37882650+gonuit@users.noreply.github.com>
+Date: Sat, 18 Jul 2026 03:37:11 +0200
+Subject: [PATCH 6/6] Update README: Tensorrt device, measured latencies, Orin
+ note
+
+---
+ jetpack5/README.md | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/jetpack5/README.md b/jetpack5/README.md
+index 017ca5b..9429a94 100644
+--- a/jetpack5/README.md
++++ b/jetpack5/README.md
+@@ -57,6 +57,7 @@ Put the model in your config volume and use:
+ detectors:
+   onnx:
+     type: onnx
++    device: Tensorrt
+ 
+ model:
+   model_type: yolo-generic
+@@ -69,4 +70,5 @@ model:
+ ```
+ 
+ Tested on a Xavier NX (JetPack 5.0.2): three camera streams with hardware
+-decode, ~10 ms inference (yolov9-s 320, CUDA EP). Coral USB is untested.
++decode, ~9 ms inference with yolov9-s 320, ~21 ms with yolov9-c 416
++(`device: Tensorrt`). Orin and Coral USB are untested.
+-- 
+2.25.1
+

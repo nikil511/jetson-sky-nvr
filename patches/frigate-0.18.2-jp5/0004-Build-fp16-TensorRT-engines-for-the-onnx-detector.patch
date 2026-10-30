@@ -1,0 +1,25 @@
+From fd0e734292e32ef8e85e2ce43c51e9d8dcb030f3 Mon Sep 17 00:00:00 2001
+From: Kamil Klyta <37882650+gonuit@users.noreply.github.com>
+Date: Sat, 18 Jul 2026 03:16:25 +0200
+Subject: [PATCH 4/6] Build fp16 TensorRT engines for the onnx detector
+
+---
+ frigate/detectors/plugins/onnx.py | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/frigate/detectors/plugins/onnx.py b/frigate/detectors/plugins/onnx.py
+index 6c9e510..fb1b6e5 100644
+--- a/frigate/detectors/plugins/onnx.py
++++ b/frigate/detectors/plugins/onnx.py
+@@ -40,6 +40,8 @@ class ONNXDetector(DetectionApi):
+             path,
+             detector_config.device,
+             model_type=detector_config.model.model_type,
++            # fp32 TensorRT engines are several times slower on Jetson; USE_FP_16=False opts out
++            requires_fp16=True,
+         )
+ 
+         self.onnx_model_type = detector_config.model.model_type
+-- 
+2.25.1
+

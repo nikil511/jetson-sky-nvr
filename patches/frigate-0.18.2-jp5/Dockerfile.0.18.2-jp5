@@ -1,0 +1,19 @@
+FROM ghcr.io/blakeblackshear/frigate:0.18.2 AS upstream
+
+FROM ghcr.io/gonuit/frigate-jetpack5:0.17.2-tensorrt-jp5
+
+# Upgrade go2rtc to 0.18.2 bundled version (v1.9.14)
+COPY --from=upstream /usr/local/go2rtc/bin/go2rtc /usr/local/go2rtc/bin/go2rtc
+
+# Install the two new Python wheel dependencies added in Frigate 0.18.2
+RUN pip3 install --no-cache-dir \
+    "python-multipart==0.0.26" \
+    "https://github.com/AXERA-TECH/pyaxengine/releases/download/0.1.3-frigate/axengine-0.1.3-py3-none-any.whl"
+
+# Replace /opt/frigate (frigate Python package, DB migrations, and compiled 0.18.2 Web UI)
+RUN rm -rf /opt/frigate/frigate /opt/frigate/migrations /opt/frigate/web
+COPY --from=upstream /opt/frigate/ /opt/frigate/
+
+# Apply JetPack 5 TensorRT FP16 + 256MB workspace patches to 0.18.2
+COPY apply_jp5_patches.py /tmp/apply_jp5_patches.py
+RUN python3 /tmp/apply_jp5_patches.py && rm -f /tmp/apply_jp5_patches.py

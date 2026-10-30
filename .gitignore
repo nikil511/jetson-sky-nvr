@@ -1,0 +1,14 @@
+.env
+*.env
+!*.env.example
+config/frigate/model_cache/
+config/frigate/*.db*
+config/frigate/.*
+config/frigate/certs/
+config/frigate/go2rtc_homekit.yml
+config/frigate/backup_config.yaml
+config/frigate/*.bak*
+data/
+recordings/
+__pycache__/
+*.pyc

@@ -1,0 +1,65 @@
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2.0
+    container_name: mosquitto
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:1883:1883"
+    volumes:
+      - ./config/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - /srv/nvr/mosquitto/data:/mosquitto/data
+
+  frigate:
+    image: ${FRIGATE_IMAGE:-frigate:0.18.2-tensorrt-jp5}
+    container_name: frigate
+    restart: unless-stopped
+    privileged: true
+    runtime: nvidia
+    shm_size: "256mb"
+    depends_on:
+      - mosquitto
+    environment:
+      - FRIGATE_RTSP_USER=${SKY_CAM_USER}
+      - FRIGATE_RTSP_PASSWORD=${SKY_CAM_PASS}
+      - FRIGATE_CAM_HOST=${SKY_CAM_HOST}
+      - TZ=Europe/Athens
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - ./config/frigate:/config
+      - /srv/nvr/frigate:/media/frigate
+      - type: tmpfs
+        target: /tmp/cache
+        tmpfs:
+          size: 268435456
+    ports:
+      - "5000:5000"
+      - "8554:8554"
+      - "8555:8555/tcp"
+      - "8555:8555/udp"
+
+  sky-vision:
+    build:
+      context: ./sky-vision
+      dockerfile: Dockerfile
+    image: sky-vision:1.1.0
+    container_name: sky-vision
+    restart: unless-stopped
+    depends_on:
+      - mosquitto
+    environment:
+      - SKY_CAM_RTSP_URL=rtsp://frigate:8554/athens_sky
+      - SKY_CAM_RTSP_MAIN=${SKY_CAM_RTSP_MAIN}
+      - MQTT_HOST=mosquitto
+      - MQTT_PORT=1883
+      - SKY_MQTT_TOPIC=sky_vision/athens
+      - WXM_STATUS_URL=${WXM_STATUS_URL:-}
+      - SKY_LAT=${SKY_LAT:-37.9838}
+      - SKY_LON=${SKY_LON:-23.7275}
+      - EXTRACT_INTERVAL_SEC=300
+      - MAX_STORAGE_MB=1500
+      - SKY_DATA_DIR=/data
+      - TZ=Europe/Athens
+    volumes:
+      - /srv/nvr/sky-vision:/data
+    ports:
+      - "8080:8080"

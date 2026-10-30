@@ -1,0 +1,147 @@
+From 0c6c7e349aca02857140e0552e897669d7e34754 Mon Sep 17 00:00:00 2001
+From: Kamil Klyta <37882650+gonuit@users.noreply.github.com>
+Date: Sat, 18 Jul 2026 02:06:07 +0200
+Subject: [PATCH 2/6] Adapt arm64 TensorRT image to JetPack 5: custom ORT
+ 1.19.2 wheel, focal fixes
+
+---
+ docker/tensorrt/Dockerfile.arm64              | 29 +++++++++++--------
+ .../detector/build_python_tensorrt.sh         |  9 +++---
+ docker/tensorrt/requirements-arm64.txt        |  2 +-
+ docker/tensorrt/trt.mk                        |  4 ++-
+ 4 files changed, 26 insertions(+), 18 deletions(-)
+
+diff --git a/docker/tensorrt/Dockerfile.arm64 b/docker/tensorrt/Dockerfile.arm64
+index dd3c5de..3dee79c 100644
+--- a/docker/tensorrt/Dockerfile.arm64
++++ b/docker/tensorrt/Dockerfile.arm64
+@@ -11,6 +11,9 @@ FROM ${TRT_BASE} AS trt-deps
+ ARG TARGETARCH
+ ARG COMPUTE_LEVEL
+ 
++# the cuda-deps RUN below uses bashisms, /bin/sh is dash in the l4t base
++SHELL ["/bin/bash", "-c"]
++
+ RUN apt-get update \
+     && apt-get install -y git build-essential cuda-nvcc-* cuda-nvtx-* libnvinfer-dev libnvinfer-plugin-dev libnvparsers-dev libnvonnxparsers-dev \
+     && rm -rf /var/lib/apt/lists/*
+@@ -59,21 +62,23 @@ HEALTHCHECK --start-period=600s --start-interval=5s --interval=15s --timeout=5s
+ FROM ${BASE_IMAGE} AS build-wheels
+ ARG DEBIAN_FRONTEND
+ 
+-# Add deadsnakes PPA for python3.11
+-RUN apt-get -qq update && \
+-    apt-get -qq install -y --no-install-recommends \
+-    software-properties-common \
+-    && add-apt-repository ppa:deadsnakes/ppa
++# python 3.11 from python-build-standalone, deadsnakes has no arm64/focal binaries
++ADD https://github.com/astral-sh/python-build-standalone/releases/download/20260623/cpython-3.11.15+20260623-aarch64-unknown-linux-gnu-install_only.tar.gz /tmp/python311.tar.gz
++RUN echo "1de978b7039f345dacdddc3efb0726ce5b957bbbd34161037a4b426aabb18bf5  /tmp/python311.tar.gz" | sha256sum -c \
++    && tar -xzf /tmp/python311.tar.gz --strip-components=1 -C /usr/local \
++    && rm /tmp/python311.tar.gz
++
++# python-build-standalone records CC=clang in sysconfig
++ENV CC=gcc CXX=g++
+ 
+ # Use a separate container to build wheels to prevent build dependencies in final image
+ RUN apt-get -qq update \
+     && apt-get -qq install -y --no-install-recommends \
+-    python3.11 python3.11-dev \
+     wget build-essential cmake git \
+     && rm -rf /var/lib/apt/lists/*
+ 
+ # Ensure python3 defaults to python3.11
+-RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
++RUN update-alternatives --install /usr/bin/python3 python3 /usr/local/bin/python3.11 1
+ 
+ RUN wget -q https://bootstrap.pypa.io/get-pip.py -O get-pip.py \
+     && sed -i 's/args.append("setuptools")/args.append("setuptools==77.0.3")/' get-pip.py \
+@@ -102,8 +107,8 @@ COPY docker/tensorrt/requirements-arm64.txt /requirements-tensorrt.txt
+ 
+ RUN pip3 wheel --wheel-dir=/trt-wheels -r /requirements-tensorrt.txt
+ 
+-# See https://elinux.org/Jetson_Zoo#ONNX_Runtime
+-ADD https://nvidia.box.com/shared/static/9yvw05k6u343qfnkhdv2x6xhygze0aq1.whl /trt-wheels/onnxruntime_gpu-1.19.0-cp311-cp311-linux_aarch64.whl
++# CUDA 11.4 build, see https://github.com/gonuit/onnxruntime-jetpack5
++ADD https://github.com/gonuit/onnxruntime-jetpack5/releases/download/v1.19.2.1/onnxruntime_gpu-1.19.2-cp311-cp311-linux_aarch64.whl /trt-wheels/onnxruntime_gpu-1.19.2-cp311-cp311-linux_aarch64.whl
+ 
+ FROM build-wheels AS trt-model-wheels
+ ARG DEBIAN_FRONTEND
+@@ -125,7 +130,7 @@ RUN --mount=type=bind,source=docker/tensorrt/build_jetson_ffmpeg.sh,target=/deps
+ # Frigate w/ TensorRT for NVIDIA Jetson platforms
+ FROM tensorrt-base AS frigate-tensorrt
+ RUN apt-get update \
+-    && apt-get install -y python-is-python3 libprotobuf23  \
++    && apt-get install -y python-is-python3 libprotobuf17  \
+     && rm -rf /var/lib/apt/lists/*
+ 
+ COPY --from=jetson-ffmpeg /rootfs /
+@@ -135,7 +140,7 @@ ENV INCLUDED_FFMPEG_VERSIONS="${DEFAULT_FFMPEG_VERSION}:${INCLUDED_FFMPEG_VERSIO
+ # ffmpeg runtime dependencies
+ RUN apt-get -qq update \
+     && apt-get -qq install -y --no-install-recommends \
+-    libx264-163 libx265-199 libegl1 \
++    libx264-155 libx265-179 libegl1 \
+     && rm -rf /var/lib/apt/lists/*
+ 
+ # Fixes "Error loading shared libs"
+@@ -153,4 +158,4 @@ WORKDIR /opt/frigate/
+ COPY --from=rootfs / /
+ 
+ # Fixes "Error importing detector runtime: /usr/lib/aarch64-linux-gnu/libstdc++.so.6: cannot allocate memory in static TLS block"
+-ENV LD_PRELOAD /usr/lib/aarch64-linux-gnu/libstdc++.so.6
+\ No newline at end of file
++ENV LD_PRELOAD /usr/lib/aarch64-linux-gnu/libstdc++.so.6
+diff --git a/docker/tensorrt/detector/build_python_tensorrt.sh b/docker/tensorrt/detector/build_python_tensorrt.sh
+index 3251034..d36430c 100755
+--- a/docker/tensorrt/detector/build_python_tensorrt.sh
++++ b/docker/tensorrt/detector/build_python_tensorrt.sh
+@@ -12,17 +12,18 @@ if [[ "${TARGETARCH}" == "arm64" ]]; then
+   # Get python-tensorrt source
+   mkdir -p /workspace
+   cd /workspace
+-  git clone -b release/8.6 https://github.com/NVIDIA/TensorRT.git --depth=1
++  git clone -b "release/${TENSORRT_VER%.*}" https://github.com/NVIDIA/TensorRT.git --depth=1
+ 
+   # Collect dependencies
+   EXT_PATH=/workspace/external && mkdir -p $EXT_PATH
+-  pip3 install pybind11 && ln -s /usr/local/lib/python3.11/dist-packages/pybind11 $EXT_PATH/pybind11
+-  ln -s /usr/include/python3.11 $EXT_PATH/python3.11
++  pip3 install pybind11 && ln -s "$(pip3 show pybind11 | grep -Po '^Location: \K.*')/pybind11" $EXT_PATH/pybind11
++  ln -s "$(python3 -c 'import sysconfig; print(sysconfig.get_paths()["include"])')" $EXT_PATH/python3.11
+   ln -s /usr/include/aarch64-linux-gnu/NvOnnxParser.h /workspace/TensorRT/parsers/onnx/
+ 
+   # Build wheel
+   cd /workspace/TensorRT/python
+   EXT_PATH=$EXT_PATH PYTHON_MAJOR_VERSION=3 PYTHON_MINOR_VERSION=11 TARGET_ARCHITECTURE=aarch64 TENSORRT_MODULE=tensorrt /bin/bash ./build.sh
+-  mv build/bindings_wheel/dist/*.whl /trt-wheels/
++  find build -name 'tensorrt-*.whl' -exec mv -v {} /trt-wheels/ \;
++  ls /trt-wheels/tensorrt-*.whl
+ 
+ fi
+diff --git a/docker/tensorrt/requirements-arm64.txt b/docker/tensorrt/requirements-arm64.txt
+index 78d6597..6ad0f28 100644
+--- a/docker/tensorrt/requirements-arm64.txt
++++ b/docker/tensorrt/requirements-arm64.txt
+@@ -1,2 +1,2 @@
+-cuda-python == 12.6.*; platform_machine == 'aarch64'
++cuda-python == 11.8.5.post1; platform_machine == 'aarch64'
+ numpy == 1.26.*; platform_machine == 'aarch64'
+diff --git a/docker/tensorrt/trt.mk b/docker/tensorrt/trt.mk
+index 904a2c3..fd516ad 100644
+--- a/docker/tensorrt/trt.mk
++++ b/docker/tensorrt/trt.mk
+@@ -3,7 +3,9 @@ BOARDS += trt
+ JETPACK5_BASE ?= nvcr.io/nvidia/l4t-tensorrt:r8.5.2-runtime	# L4T 35.3.1 JetPack 5.1.1
+ JETPACK6_BASE ?= nvcr.io/nvidia/tensorrt:23.12-py3-igpu
+ X86_DGPU_ARGS := ARCH=amd64 COMPUTE_LEVEL="50 60 70 80 90"
+-JETPACK5_ARGS := ARCH=arm64 BASE_IMAGE=$(JETPACK5_BASE) SLIM_BASE=$(JETPACK5_BASE) TRT_BASE=$(JETPACK5_BASE)
++# focal: enable deb-src for apt-get build-dep, deadsnakes has no arm64 binaries
++JETPACK5_HOOK := if grep -q focal /etc/os-release; then sed -n "s/^deb /deb-src /p" /etc/apt/sources.list >> /etc/apt/sources.list; fi
++JETPACK5_ARGS := ARCH=arm64 BASE_IMAGE=$(JETPACK5_BASE) SLIM_BASE=$(JETPACK5_BASE) TRT_BASE=$(JETPACK5_BASE) BASE_HOOK='$(JETPACK5_HOOK)'
+ JETPACK6_ARGS := ARCH=arm64 BASE_IMAGE=$(JETPACK6_BASE) SLIM_BASE=$(JETPACK6_BASE) TRT_BASE=$(JETPACK6_BASE)
+ 
+ local-trt: version
+-- 
+2.25.1
+

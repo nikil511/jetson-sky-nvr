@@ -1,0 +1,95 @@
+mqtt:
+  enabled: true
+  host: mosquitto
+  port: 1883
+  topic_prefix: frigate
+  client_id: frigate-jetson-nx
+
+detectors:
+  onnx:
+    type: onnx
+    device: Tensorrt
+
+model:
+  model_type: yolo-generic
+  path: /config/model_cache/yolov9-s-320.onnx
+  labelmap_path: /labelmap/coco-80.txt
+  input_tensor: nchw
+  input_dtype: float
+  width: 320
+  height: 320
+
+ffmpeg:
+  hwaccel_args: preset-jetson-h265
+
+go2rtc:
+  streams:
+    athens_sky:
+      - rtsp://{FRIGATE_RTSP_USER}:{FRIGATE_RTSP_PASSWORD}@{FRIGATE_CAM_HOST}:554/Streaming/Channels/101
+    athens_sky_sub:
+      - rtsp://{FRIGATE_RTSP_USER}:{FRIGATE_RTSP_PASSWORD}@{FRIGATE_CAM_HOST}:554/Streaming/Channels/102
+    athens_sky_vision:
+      - "ffmpeg:http://sky-vision:8080/stream.mjpeg#input=-f mpjpeg -r 1 -analyzeduration 0 -probesize 32768 -i http://sky-vision:8080/stream.mjpeg#video=-c:v libx264 -g 1 -keyint_min 1 -preset ultrafast -tune zerolatency -pix_fmt yuv420p -threads 1"
+
+cameras:
+  athens_sky:
+    enabled: true
+    ffmpeg:
+      inputs:
+        - path: rtsp://127.0.0.1:8554/athens_sky
+          input_args: preset-rtsp-restream
+          roles:
+            - record
+        - path: rtsp://127.0.0.1:8554/athens_sky_sub
+          input_args: preset-rtsp-restream
+          roles:
+            - detect
+    detect:
+      enabled: true
+      width: 640
+      height: 360
+      fps: 5
+    motion:
+      enabled: true
+      threshold: 30
+      contour_area: 15
+    record:
+      enabled: true
+      alerts:
+        retain:
+          days: 5
+      detections:
+        retain:
+          days: 5
+      continuous:
+        days: 0
+      motion:
+        days: 2
+    live:
+      streams:
+        Main Stream: athens_sky
+        Sub Stream: athens_sky_sub
+  athens_sky_vision:
+    enabled: true
+    ffmpeg:
+      hwaccel_args: []
+      inputs:
+        - path: rtsp://127.0.0.1:8554/athens_sky_vision
+          input_args: -rtsp_transport tcp -timeout 10000000 -fflags nobuffer -flags low_delay -analyzeduration 1000000 -probesize 32768
+          roles:
+            - detect
+    detect:
+      enabled: false
+      width: 1280
+      height: 720
+      fps: 1
+    motion:
+      enabled: false
+    record:
+      enabled: false
+    snapshots:
+      enabled: false
+    live:
+      streams:
+        Cloud Classification: athens_sky_vision
+version: 0.18-0

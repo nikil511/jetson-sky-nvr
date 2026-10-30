@@ -1,0 +1,135 @@
+From 874c03b699c574ee61f1a21cb51d7b1ac4d532e0 Mon Sep 17 00:00:00 2001
+From: Kamil Klyta <37882650+gonuit@users.noreply.github.com>
+Date: Sat, 18 Jul 2026 02:06:07 +0200
+Subject: [PATCH 1/6] Restore focal/arm64 compatibility in the main image
+ (JetPack 5 bases)
+
+---
+ docker/main/Dockerfile              | 21 +++++++++++++++++----
+ docker/main/install_deps.sh         | 23 ++++++++++++++++-------
+ docker/main/requirements-wheels.txt |  3 ++-
+ 3 files changed, 35 insertions(+), 12 deletions(-)
+
+diff --git a/docker/main/Dockerfile b/docker/main/Dockerfile
+index 055a145..9b470a8 100644
+--- a/docker/main/Dockerfile
++++ b/docker/main/Dockerfile
+@@ -150,20 +150,27 @@ ARG DEBIAN_FRONTEND
+ ARG TARGETARCH
+ ARG DEBUG=false
+ 
++# python 3.11 from python-build-standalone, deadsnakes has no arm64/focal binaries
++ADD https://github.com/astral-sh/python-build-standalone/releases/download/20260623/cpython-3.11.15+20260623-aarch64-unknown-linux-gnu-install_only.tar.gz /tmp/python311.tar.gz
++RUN echo "1de978b7039f345dacdddc3efb0726ce5b957bbbd34161037a4b426aabb18bf5  /tmp/python311.tar.gz" | sha256sum -c \
++    && tar -xzf /tmp/python311.tar.gz --strip-components=1 -C /usr/local \
++    && rm /tmp/python311.tar.gz
++
++# python-build-standalone records CC=clang in sysconfig
++ENV CC=gcc CXX=g++
++
+ # Use a separate container to build wheels to prevent build dependencies in final image
+ RUN apt-get -qq update \
+     && apt-get -qq install -y \
+     apt-transport-https wget unzip \
+     && apt-get -qq update \
+     && apt-get -qq install -y \
+-    python3.11 \
+-    python3.11-dev \
+     # opencv dependencies
+     build-essential cmake git pkg-config libgtk-3-dev \
+     libavcodec-dev libavformat-dev libswscale-dev libv4l-dev \
+     libxvidcore-dev libx264-dev libjpeg-dev libpng-dev libtiff-dev \
+     gfortran openexr libatlas-base-dev libssl-dev\
+-    libtbbmalloc2 libtbb-dev libdc1394-dev libopenexr-dev \
++    libtbb2 libtbb-dev libdc1394-22-dev libopenexr-dev \
+     libgstreamer-plugins-base1.0-dev libgstreamer1.0-dev \
+     # sqlite3 dependencies
+     tclsh \
+@@ -171,7 +178,7 @@ RUN apt-get -qq update \
+     gcc gfortran libopenblas-dev liblapack-dev && \
+     rm -rf /var/lib/apt/lists/*
+ 
+-RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
++RUN update-alternatives --install /usr/bin/python3 python3 /usr/local/bin/python3.11 1
+ 
+ RUN wget -q https://bootstrap.pypa.io/get-pip.py -O get-pip.py \
+     && sed -i 's/args.append("setuptools")/args.append("setuptools==77.0.3")/' get-pip.py \
+@@ -252,6 +259,12 @@ ENV GLOG_logtostderr=0
+ 
+ ENV PATH="/usr/local/go2rtc/bin:/usr/local/tempio/bin:/usr/local/nginx/sbin:${PATH}"
+ 
++# python 3.11 from python-build-standalone, deadsnakes has no arm64/focal binaries
++ADD https://github.com/astral-sh/python-build-standalone/releases/download/20260623/cpython-3.11.15+20260623-aarch64-unknown-linux-gnu-install_only.tar.gz /tmp/python311.tar.gz
++RUN echo "1de978b7039f345dacdddc3efb0726ce5b957bbbd34161037a4b426aabb18bf5  /tmp/python311.tar.gz" | sha256sum -c \
++    && tar -xzf /tmp/python311.tar.gz --strip-components=1 -C /usr/local \
++    && rm /tmp/python311.tar.gz
++
+ # Install dependencies
+ RUN --mount=type=bind,source=docker/main/install_deps.sh,target=/deps/install_deps.sh \
+     /deps/install_deps.sh
+diff --git a/docker/main/install_deps.sh b/docker/main/install_deps.sh
+index 330caff..601ac61 100755
+--- a/docker/main/install_deps.sh
++++ b/docker/main/install_deps.sh
+@@ -12,7 +12,6 @@ apt-get -qq install --no-install-recommends -y \
+     lbzip2 \
+     procps vainfo \
+     unzip locales tzdata libxml2 xz-utils \
+-    python3.11 \
+     curl \
+     lsof \
+     jq \
+@@ -23,20 +22,30 @@ apt-get -qq install --no-install-recommends -y \
+     python3-h2 \
+     libgomp1  # memryx detector
+ 
+-update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
++update-alternatives --install /usr/bin/python3 python3 /usr/local/bin/python3.11 1
+ 
+ mkdir -p -m 600 /root/.gnupg
+ 
+ # install coral runtime
+-wget -q -O /tmp/libedgetpu1-max.deb "https://github.com/feranick/libedgetpu/releases/download/16.0TF2.17.1-1/libedgetpu1-max_16.0tf2.17.1-1.bookworm_${TARGETARCH}.deb"
+-unset DEBIAN_FRONTEND
+-yes | dpkg -i /tmp/libedgetpu1-max.deb && export DEBIAN_FRONTEND=noninteractive
+-rm /tmp/libedgetpu1-max.deb
++if [[ "${BASE_IMAGE}" == *"l4t"* ]]; then
++    # the bookworm deb below does not install on focal, use Google's coral apt repo
++    curl -fsSLo - https://packages.cloud.google.com/apt/doc/apt-key.gpg | \
++        gpg --dearmor -o /etc/apt/trusted.gpg.d/google-cloud-packages-archive-keyring.gpg
++    echo "deb https://packages.cloud.google.com/apt coral-edgetpu-stable main" | tee /etc/apt/sources.list.d/coral-edgetpu.list
++    echo "libedgetpu1-max libedgetpu/accepted-eula select true" | debconf-set-selections
++    apt-get -qq update
++    apt-get -qq install --no-install-recommends --no-install-suggests -y libedgetpu1-max
++else
++    wget -q -O /tmp/libedgetpu1-max.deb "https://github.com/feranick/libedgetpu/releases/download/16.0TF2.17.1-1/libedgetpu1-max_16.0tf2.17.1-1.bookworm_${TARGETARCH}.deb"
++    unset DEBIAN_FRONTEND
++    yes | dpkg -i /tmp/libedgetpu1-max.deb && export DEBIAN_FRONTEND=noninteractive
++    rm /tmp/libedgetpu1-max.deb
++fi
+ 
+ # install mesa-teflon-delegate from bookworm-backports
+ # Only available for arm64 at the moment
+ if [[ "${TARGETARCH}" == "arm64" ]]; then
+-    if [[ "${BASE_IMAGE}" == *"nvcr.io/nvidia/tensorrt"* ]]; then
++    if [[ "${BASE_IMAGE}" == *"nvcr.io/nvidia/tensorrt"* || "${BASE_IMAGE}" == *"l4t"* ]]; then
+         echo "Info: Skipping apt-get commands because BASE_IMAGE includes 'nvcr.io/nvidia/tensorrt' for arm64."
+     else
+         echo "deb http://deb.debian.org/debian bookworm-backports main" | tee /etc/apt/sources.list.d/bookworm-backbacks.list
+diff --git a/docker/main/requirements-wheels.txt b/docker/main/requirements-wheels.txt
+index f81fefe..3ba8d56 100644
+--- a/docker/main/requirements-wheels.txt
++++ b/docker/main/requirements-wheels.txt
+@@ -42,7 +42,8 @@ opencv-python-headless == 4.11.0.*
+ opencv-contrib-python == 4.11.0.*
+ scipy == 1.16.*
+ # OpenVino & ONNX
+-openvino == 2025.3.*
++# 2025.3 has no aarch64 wheels
++openvino == 2025.2.*
+ onnxruntime == 1.22.*
+ # Embeddings
+ transformers == 4.45.*
+-- 
+2.25.1
+

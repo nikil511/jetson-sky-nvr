@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Athens Sky Lab</title>
+<style>
+:root{color-scheme:dark;font-family:system-ui,sans-serif;background:#0a1320;color:#eaf3ff}*{box-sizing:border-box}body{margin:0 auto;max-width:1320px;padding:30px 22px}header{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}h1{font-size:28px;margin:0}p,.muted{color:#9fb2c8}a{color:#70e0d1}#status{border:1px solid #304258;padding:8px 14px;border-radius:30px;font-size:13px;font-variant-numeric:tabular-nums}.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:20px 0}.card,section{background:#121f30;border:1px solid #24364b;border-radius:16px;padding:20px}.label{color:#9fb2c8;font-size:13px}.value{font-size:30px;font-weight:650;margin:8px 0}.value small{font-size:17px;color:#9fb2c8}progress{width:100%;height:8px;accent-color:#66dfcf}#overlay{width:100%;display:block;border-radius:10px;background:#09111b;min-height:160px}.legend{font-size:13px;line-height:1.8;margin-bottom:0}section{margin:16px 0}h2{font-size:17px;margin-top:0}svg{width:100%;height:auto;display:block}#historyNote{font-size:13px}.note{font-size:12px;line-height:1.7}#stamp{font-size:13px}.roof-bar{display:flex;flex-wrap:wrap;gap:18px;align-items:center;justify-content:space-between;padding:14px 20px;background:#0e1928;border:1px solid #24364b;border-radius:14px;font-size:14px;margin-bottom:18px}.roof-bar span{color:#9fb2c8}.roof-bar strong{color:#eaf3ff;font-weight:600}.player-bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;margin:12px 0;padding:10px 14px;background:#0c1624;border:1px solid #24364b;border-radius:12px}.btn-group{display:flex;gap:6px;align-items:center;flex-wrap:wrap}button,select{background:#17283d;color:#eaf3ff;border:1px solid #2f4661;border-radius:8px;padding:6px 12px;font-size:13px;cursor:pointer}button:hover{background:#213752}button.active{background:#1b5c58;border-color:#70e0d1;color:#fff;font-weight:600}input[type=range]{flex:1;min-width:180px;accent-color:#70e0d1}@media(max-width:750px){.cards{grid-template-columns:repeat(2,1fr)}body{padding:20px 12px}.value{font-size:24px}section{padding:14px}}@media(max-width:400px){.cards{grid-template-columns:1fr}}
+</style>
+<header><div><h1>Athens Sky Lab</h1><p>Cloud coverage, ceiling &amp; roof weather fusion</p></div><span id="status" role="status">Connecting…</span></header>
+<div class="cards">
+<div class="card"><div class="label">Cloud cover</div><div class="value" id="cover">—</div><progress id="gauge" max="100" value="0" aria-label="Cloud cover percentage"></progress></div>
+<div class="card"><div class="label">Sky condition</div><div class="value" id="condition" style="font-size:23px">—</div><div class="muted" id="oktas">— / 8 oktas</div></div>
+<div class="card"><div class="label">Estimated ceiling</div><div class="value" id="ceiling">—</div><div class="muted" id="lclSub">LCL base —</div></div>
+<div class="card"><div class="label">Cloud motion (4s pair)</div><div class="value" id="speed">—</div><div class="muted" id="direction">Flow —</div></div>
+</div>
+<div class="roof-bar" id="roofBar">
+<div><span>Roof station:</span> <strong id="stName">WeatherXM WG1200</strong></div>
+<div><span>Temp / Dew:</span> <strong id="stTemp">—</strong></div>
+<div><span>Humidity / Press:</span> <strong id="stHumPress">—</strong></div>
+<div><span>Roof wind:</span> <strong id="stWind">—</strong></div>
+<div><span>Solar / UV / Rain:</span> <strong id="stSolar">—</strong></div>
+<div><span>Mode:</span> <strong id="mode">—</strong></div>
+</div>
+<section>
+<header><h2>Diagnostic Sky Viewer &amp; Timelapse Playback</h2><span class="muted" id="stamp">Waiting for observation</span></header>
+<div class="player-bar">
+  <div class="btn-group">
+    <button id="btnOverlay" class="active" onclick="setLayer('debug')">🎯 With Overlay (Mask + Arrows)</button>
+    <button id="btnRaw" onclick="setLayer('raw')">📷 Clean Raw Sky</button>
+  </div>
+  <div class="btn-group" style="flex:1;min-width:260px">
+    <button onclick="stepFrame(-1)" title="Previous frame">⏮</button>
+    <button id="btnPlay" onclick="togglePlay()">▶ Play</button>
+    <button onclick="stepFrame(1)" title="Next frame">⏭</button>
+    <input type="range" id="scrubber" min="0" max="0" value="0" oninput="onScrub(this.value)">
+    <select id="playFps" onchange="if(playTimer){togglePlay();togglePlay();}">
+      <option value="500">2 fps</option>
+      <option value="250" selected>4 fps</option>
+      <option value="125">8 fps</option>
+    </select>
+    <button id="btnLive" class="active" onclick="goLive()">🔴 Live</button>
+  </div>
+</div>
+<img id="overlay" alt="Sky camera with cloud mask and motion arrows">
+<p class="legend" id="frameInfo">🟨 Sky analysis boundary &nbsp; · &nbsp; Cyan tint: detected cloud pixels &nbsp; · &nbsp; Orange arrows: apparent cloud motion (4.0s pair at 1280×720)</p>
+</section>
+<section><h2>Cloud cover · last 24 hours</h2><svg id="chart" viewBox="0 0 1000 240" role="img" aria-label="Cloud cover percentage over the past 24 hours"></svg><p class="muted" id="historyNote">Loading history…</p></section>
+<p class="note muted">Observations sampled every 5 minutes (4.0s frame pair at 1280×720 for optical flow) + live WeatherXM WG1200 roof station.<br>Use the buttons above the image to toggle the orange arrows/cyan mask on or off and play back historical 5-minute captures.</p>
+<a id="frigate" href="#">Open Frigate →</a> &nbsp; <a href="/api/latest">Latest JSON</a> &nbsp; <a href="/api/frames">Frames JSON</a>
+<script>
+const $=id=>document.getElementById(id);
+let latest=null, lastImage='', frames=[], frameIdx=0, isLive=true, viewLayer='debug', playTimer=null;
+$('frigate').href=`http://${location.hostname}:5000`;
+function fmtAge(sec){const m=Math.floor(sec/60),s=sec%60;return `${m}m ${String(s).padStart(2,'0')}s`}
+function freshness(){if(!latest)return;const age=Math.max(0,Math.round((Date.now()-Date.parse(latest.timestamp))/1000));$('status').textContent=age>420?`Stale · ${fmtAge(age)} old`:`Live · ${fmtAge(age)} ago`;$('status').style.color=age>420?'#ffbf78':'#70e0d1'}
+function setLayer(layer){
+  viewLayer=layer;
+  $('btnOverlay').classList.toggle('active',layer==='debug');
+  $('btnRaw').classList.toggle('active',layer==='raw');
+  renderCurrentFrame(true);
+}
+function goLive(){
+  if(playTimer){clearInterval(playTimer);playTimer=null;$('btnPlay').textContent='▶ Play';}
+  isLive=true;
+  $('btnLive').classList.add('active');
+  if(frames.length){frameIdx=frames.length-1;$('scrubber').value=frameIdx;}
+  renderCurrentFrame(true);
+}
+function onScrub(val){
+  if(playTimer){clearInterval(playTimer);playTimer=null;$('btnPlay').textContent='▶ Play';}
+  isLive=false;
+  $('btnLive').classList.remove('active');
+  frameIdx=Math.max(0,Math.min(frames.length-1,parseInt(val,10)||0));
+  renderCurrentFrame(true);
+}
+function stepFrame(delta){
+  if(!frames.length)return;
+  isLive=false;
+  $('btnLive').classList.remove('active');
+  frameIdx=(frameIdx+delta+frames.length)%frames.length;
+  $('scrubber').value=frameIdx;
+  renderCurrentFrame(true);
+}
+function togglePlay(){
+  if(playTimer){
+    clearInterval(playTimer);playTimer=null;
+    $('btnPlay').textContent='▶ Play';
+    return;
+  }
+  if(!frames.length)return;
+  isLive=false;
+  $('btnLive').classList.remove('active');
+  if(frameIdx>=frames.length-1)frameIdx=0;
+  $('btnPlay').textContent='⏸ Pause';
+  const delay=parseInt($('playFps').value,10)||250;
+  playTimer=setInterval(()=>{
+    frameIdx=(frameIdx+1)%frames.length;
+    $('scrubber').value=frameIdx;
+    renderCurrentFrame(true);
+  },delay);
+}
+function renderCurrentFrame(force){
+  if(isLive && latest){
+    const endpoint=viewLayer==='raw'?'/latest_sky_raw.jpg':'/latest_sky_debug.jpg';
+    const key=endpoint+'?'+latest.timestamp;
+    if(force||lastImage!==key){
+      $('overlay').src=endpoint+'?t='+encodeURIComponent(latest.timestamp);
+      lastImage=key;
+    }
+    $('stamp').textContent=`LIVE · ${new Date(latest.timestamp).toLocaleString()} (${frames.length} frames stored)`;
+  } else if(frames.length && frames[frameIdx]){
+    const f=frames[frameIdx];
+    const url=viewLayer==='raw'?f.raw_url:f.debug_url;
+    if(force||lastImage!==url){
+      $('overlay').src=url;
+      lastImage=url;
+    }
+    const note=(viewLayer==='raw' && !f.has_raw)?' [raw capture starts on new frames; showing overlay]':'';
+    $('stamp').textContent=`PLAYBACK (${frameIdx+1}/${frames.length}) · ${new Date(f.timestamp).toLocaleString()} · Clouds: ${f.cloud_pct}% (${f.oktas}/8, ${f.sky_condition}) · Flow: ${f.flow_speed_px_s} px/s${note}`;
+  }
+}
+async function loadFrames(){
+  try{
+    const r=await fetch('/api/frames',{cache:'no-store'});
+    if(!r.ok)return;
+    frames=await r.json();
+    if(frames.length){
+      $('scrubber').max=frames.length-1;
+      if(isLive){frameIdx=frames.length-1;$('scrubber').value=frameIdx;}
+    }
+  }catch(e){}
+}
+async function update(){try{const r=await fetch('/api/latest',{cache:'no-store'});if(!r.ok)throw Error('Waiting for analysis');const d=await r.json();latest=d;$('cover').textContent=`${d.cloud_pct.toFixed(1)}%`;$('gauge').value=d.cloud_pct;$('condition').textContent=d.sky_condition.replaceAll('_',' ');$('oktas').textContent=`${d.oktas} / 8 oktas`;
+const ceil=d.estimated_ceiling_m||d.lcl_ceiling_m;
+$('ceiling').textContent=ceil?`~${ceil} m`:'Clear';
+$('lclSub').textContent=d.lcl_ceiling_m?`LCL ${d.lcl_ceiling_m} m · ${d.cloud_layer||'low'} layer`:'No station LCL';
+$('speed').textContent=d.cloud_speed_m_s!=null?`${d.cloud_speed_m_s.toFixed(1)} m/s`:`${d.flow_speed_px_s.toFixed(1)} px/s`;
+$('direction').textContent=`${d.flow_speed_px_s.toFixed(1)} px/s @ ${d.flow_azimuth_deg.toFixed(0)}°`;
+$('mode').textContent=`${d.is_daytime?'Day':'Night'} (sun ${d.sun_elevation_deg!=null?d.sun_elevation_deg.toFixed(1)+'°':'—'})`;
+if(d.roof_weather){const w=d.roof_weather;$('stName').textContent=w.station_name||'WG1200';$('stTemp').textContent=`${w.temp_c.toFixed(1)}°C (dew ${w.dew_point_c.toFixed(1)}°C)`;$('stHumPress').textContent=`${w.humidity_pct.toFixed(1)}% · ${w.pressure_hpa.toFixed(1)} hPa`;$('stWind').textContent=`${w.wind_speed_m_s.toFixed(1)} m/s ${w.wind_dir_cardinal} (gust ${w.wind_gust_m_s.toFixed(1)})`;$('stSolar').textContent=`${w.irradiance_w_m2.toFixed(0)} W/m² · UV ${w.uv_index} · ${w.precip_rate_mm_h.toFixed(1)} mm/h`;}
+renderCurrentFrame(false);freshness()}catch(e){$('status').textContent=latest?'Disconnected · showing last observation':'Waiting for analysis';$('status').style.color='#ffbf78'}}
+async function chart(){try{const r=await fetch('/api/history');if(!r.ok)throw Error();const rows=await r.json(),now=Date.now(),start=now-86400000;const x=t=>50+(t-start)/86400000*930,y=v=>200-v*1.75;let s='';for(const v of [0,25,50,75,100])s+=`<line x1="50" x2="980" y1="${y(v)}" y2="${y(v)}" stroke="#2a3e53"/><text x="6" y="${y(v)+5}" fill="#9fb2c8" font-size="13">${v}%</text>`;for(let h=0;h<=24;h+=6){const t=start+h*3600000;s+=`<text x="${x(t)}" y="230" text-anchor="${h===0?'start':h===24?'end':'middle'}" fill="#9fb2c8" font-size="13">${new Date(t).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</text>`}let points='',prev=0;for(const d of rows){const t=Date.parse(d.timestamp);if(!Number.isFinite(t)||!Number.isFinite(d.cloud_pct))continue;points+=(t-prev>660000?'M':'L')+x(t).toFixed(1)+','+y(d.cloud_pct).toFixed(1)+' ';prev=t}s+=`<path d="${points}" fill="none" stroke="#70e0d1" stroke-width="2.5"/>`;if(rows.length===1)s+=`<circle cx="${x(Date.parse(rows[0].timestamp))}" cy="${y(rows[0].cloud_pct)}" r="4" fill="#70e0d1"/>`;$('chart').innerHTML=s;$('historyNote').textContent=rows.length?`${rows.length.toLocaleString()} observations · gaps indicate missing samples · times shown in your local timezone`:'History will appear after the first observation.'}catch(e){$('historyNote').textContent='History unavailable · retrying automatically'}}
+loadFrames();update();chart();setInterval(update,5000);setInterval(loadFrames,15000);setInterval(freshness,1000);setInterval(chart,30000);
+</script></html>
